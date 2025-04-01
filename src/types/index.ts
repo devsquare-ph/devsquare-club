@@ -20,6 +20,7 @@ export interface User {
 export interface Badge {
   uid: string;
   name: string;
+  type: string;
   level: string;
   description: string;
   created_date: Timestamp | FieldValue;

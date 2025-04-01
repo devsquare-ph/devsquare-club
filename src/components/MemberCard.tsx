@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { User } from '@/types';
+import moment from 'moment';
 
 interface MemberCardProps {
   user: User;
@@ -30,9 +31,7 @@ export default function MemberCard({ user, badgeCount = 0, projectCount = 0 }: M
           <div>
             <h3 className="text-xl font-semibold text-gray-900">{user.email.split('@')[0]}</h3>
             <p className="text-sm text-gray-500">
-              Member since {user.member_since instanceof Date 
-                ? user.member_since.toLocaleDateString() 
-                : new Date(user.member_since).toLocaleDateString()}
+              Member since {moment(user.member_since.toDate()).format('MMM DD, YYYY')}
             </p>
           </div>
         </div>

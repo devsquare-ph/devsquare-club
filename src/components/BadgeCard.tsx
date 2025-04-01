@@ -28,8 +28,13 @@ export default function BadgeCard({ badge }: BadgeCardProps) {
         
         <h3 className="text-lg font-semibold text-center text-gray-900">{badge.name}</h3>
         
-        <div className="mt-2 inline-block px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-semibold rounded-full">
-          Level: {badge.level}
+        <div className="mt-2 flex gap-2">
+          <span className="inline-block px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-semibold rounded-full">
+            Level: {badge.level}
+          </span>
+          <span className="inline-block px-3 py-1 bg-purple-100 text-purple-800 text-xs font-semibold rounded-full">
+            {badge.type}
+          </span>
         </div>
         
         <p className="mt-3 text-sm text-gray-600 text-center">

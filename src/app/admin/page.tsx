@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import { useAuth } from '@/context/AuthContext';
-import { getUsers, getBadges, getProjects, getTechnologyStacks, createUser, updateUser, deleteUser, reactivateUser } from '@/utils/firebase';
+import { getUsers, getBadges, getProjects, getTechnologyStacks, createUser, updateUser, deleteUser, reactivateUser, createBadge } from '@/utils/firebase';
 import { User, Badge, Project, TechnologyStack } from '@/types';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -82,6 +82,18 @@ export default function AdminPanel() {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [deleteUserError, setDeleteUserError] = useState('');
   const [isDeletingUser, setIsDeletingUser] = useState(false);
+
+  // Create Badge Modal State
+  const [isCreateBadgeModalOpen, setIsCreateBadgeModalOpen] = useState(false);
+  const [newBadgeName, setNewBadgeName] = useState('');
+  const [newBadgeLevel, setNewBadgeLevel] = useState('');
+  const [newBadgeType, setNewBadgeType] = useState('');
+  const [newBadgeDescription, setNewBadgeDescription] = useState('');
+  const [newBadgeImage, setNewBadgeImage] = useState<File | null>(null);
+  const [newBadgeImagePreview, setNewBadgeImagePreview] = useState<string | null>(null);
+  const [createBadgeError, setCreateBadgeError] = useState('');
+  const [isCreatingBadge, setIsCreatingBadge] = useState(false);
+  const badgeFileInputRef = useRef<HTMLInputElement>(null);
 
   // Redirect if not logged in or not admin
   useEffect(() => {
@@ -361,6 +373,76 @@ export default function AdminPanel() {
     }
   };
 
+  // Handle badge image change
+  const handleBadgeImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setNewBadgeImage(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = () => {
+        setNewBadgeImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Clear badge image
+  const handleClearBadgeImage = () => {
+    setNewBadgeImage(null);
+    setNewBadgeImagePreview(null);
+    if (badgeFileInputRef.current) {
+      badgeFileInputRef.current.value = '';
+    }
+  };
+
+  // Handle create badge form submission
+  const handleCreateBadge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateBadgeError('');
+    setIsCreatingBadge(true);
+    
+    try {
+      // Upload badge image to Cloudinary if selected
+      let badgeImageUrl = '';
+      if (newBadgeImage) {
+        badgeImageUrl = await uploadImageToCloudinary(newBadgeImage);
+      }
+      
+      // Create badge data object
+      const badgeData = {
+        name: newBadgeName,
+        type: newBadgeType,
+        description: newBadgeDescription,
+        image: badgeImageUrl,
+        is_active: true,
+        level: newBadgeType === 'Tech Stack' ? newBadgeLevel : '',
+      };
+      
+      // Create the badge in Firestore
+      await createBadge(badgeData);
+      
+      // Reset form and close modal
+      setNewBadgeName('');
+      setNewBadgeType('');
+      setNewBadgeLevel('');
+      setNewBadgeDescription('');
+      setNewBadgeImage(null);
+      setNewBadgeImagePreview(null);
+      setIsCreateBadgeModalOpen(false);
+      
+      // Refresh the badges list
+      const updatedBadges = await getBadges();
+      setBadges(updatedBadges);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create badge';
+      setCreateBadgeError(errorMessage);
+    } finally {
+      setIsCreatingBadge(false);
+    }
+  };
+
   if (authLoading || !userData || userData.role !== 'admin') {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -530,7 +612,9 @@ export default function AdminPanel() {
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold text-gray-900">Badges</h2>
-                    <button className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
+                    <button 
+                      onClick={() => setIsCreateBadgeModalOpen(true)}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
                       Create Badge
                     </button>
                   </div>
@@ -1042,6 +1126,161 @@ export default function AdminPanel() {
                 >
                   Cancel
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Badge Modal */}
+      {isCreateBadgeModalOpen && (
+        <div className="fixed inset-0 z-10 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
+            </div>
+
+            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4 max-h-[90vh] overflow-y-auto">
+                <div className="sm:flex sm:items-start">
+                  <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                    <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Create New Badge</h3>
+                    
+                    <form onSubmit={handleCreateBadge}>
+                      <div className="mb-4">
+                        <label htmlFor="badge-name" className="block text-sm font-medium text-gray-700">Badge Name</label>
+                        <input
+                          type="text"
+                          id="badge-name"
+                          value={newBadgeName}
+                          onChange={(e) => setNewBadgeName(e.target.value)}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                          required
+                        />
+                      </div>
+                      
+                      <div className="mb-4">
+                        <label htmlFor="badge-type" className="block text-sm font-medium text-gray-700">Type</label>
+                        <select
+                          id="badge-type"
+                          value={newBadgeType}
+                          onChange={(e) => setNewBadgeType(e.target.value)}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                          required
+                        >
+                          <option value="">Select a badge type</option>
+                          <option value="Achievements">Achievements</option>
+                          <option value="Project">Project</option>
+                          <option value="Membership Status">Membership Status</option>
+                          <option value="Pathway">Pathway</option>
+                          <option value="Role">Role</option>
+                          <option value="Cultural">Cultural</option>
+                          <option value="Participation">Participation</option>
+                          <option value="Ritual">Ritual</option>
+                          <option value="Tech Stack">Tech Stack</option>
+                        </select>
+                      </div>
+
+                      {newBadgeType === 'Tech Stack' && (
+                        <div className="mb-4">
+                          <label htmlFor="badge-level" className="block text-sm font-medium text-gray-700">Level</label>
+                          <input
+                            type="text"
+                            id="badge-level"
+                            value={newBadgeLevel}
+                            onChange={(e) => setNewBadgeLevel(e.target.value)}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                            placeholder="Enter badge level (e.g., Bronze, Silver, Gold, Platinum)"
+                            required
+                          />
+                        </div>
+                      )}
+                      
+                      <div className="mb-4">
+                        <label htmlFor="badge-description" className="block text-sm font-medium text-gray-700">Description</label>
+                        <textarea
+                          id="badge-description"
+                          value={newBadgeDescription}
+                          onChange={(e) => setNewBadgeDescription(e.target.value)}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                          rows={3}
+                          required
+                        />
+                      </div>
+
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700">Badge Image</label>
+                        <div className="mt-1 flex items-center">
+                          {newBadgeImagePreview ? (
+                            <div className="relative">
+                              <img 
+                                src={newBadgeImagePreview} 
+                                alt="Badge preview" 
+                                className="h-24 w-24 object-contain"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleClearBadgeImage}
+                                className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 shadow-md"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center h-24 w-24 rounded-full bg-gray-100">
+                              <svg className="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                            </div>
+                          )}
+                          <div className="ml-4">
+                            <input
+                              type="file"
+                              ref={badgeFileInputRef}
+                              accept="image/*"
+                              onChange={handleBadgeImageChange}
+                              className="hidden"
+                              id="badge-image"
+                            />
+                            <label
+                              htmlFor="badge-image"
+                              className="cursor-pointer px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
+                            >
+                              Upload Image
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {createBadgeError && (
+                        <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md text-sm">
+                          {createBadgeError}
+                        </div>
+                      )}
+                      
+                      <div className="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
+                        <button
+                          type="submit"
+                          disabled={isCreatingBadge}
+                          className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:col-start-2 sm:text-sm"
+                        >
+                          {isCreatingBadge ? 'Creating...' : 'Create Badge'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsCreateBadgeModalOpen(false)}
+                          className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
