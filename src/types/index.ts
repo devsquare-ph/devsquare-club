@@ -32,15 +32,17 @@ export interface Badge {
 export interface Project {
   uid: string;
   title: string;
-  description: string;
-  categories: string[];
-  tags: string[];
-  technology_stacks: string[]; // Array of technology stack IDs
+  description?: string;
+  categories?: string[];
+  tags?: string[];
+  technology_stacks?: string[]; // Array of technology stack IDs
   created_date: Timestamp | FieldValue;
   modified_date: Timestamp | FieldValue;
-  links: string[]; // Array of URLs
-  image: string;
+  links?: string[]; // Array of URLs
+  image?: string;
   is_active: boolean;
+  github_repo?: string;
+  website_link?: string;
 }
 
 export interface TechnologyStack {

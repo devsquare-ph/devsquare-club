@@ -1,21 +1,21 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import Navbar from '@/components/Navbar';
 import { useAuth } from '@/context/AuthContext';
-import { getUsers, getBadges, getProjects, getTechnologyStacks, createUser, updateUser, deleteUser, reactivateUser, createBadge } from '@/utils/firebase';
-import { User, Badge, Project, TechnologyStack } from '@/types';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-import moment from 'moment';
+import { getUsers, deleteUser, reactivateUser } from '@/utils/firebase';
+import { createProject, updateProject, softDeleteProject, reactivateProject, getAllProjects } from '@/lib/projects';
 import { uploadImageToCloudinary } from '@/utils/cloudinary';
 import { Timestamp, FieldValue } from 'firebase/firestore';
+import Modal from '@/components/Modal';
+import Navbar from '@/components/Navbar';
+import { User, Project } from '@/types';
+import moment from 'moment';
 
 // Define partial types for the user data objects
 type CreateUserData = {
   email: string;
-  member_since: Timestamp | FieldValue;
+  member_since: Timestamp;
   role: 'admin' | 'member';
   profile_image?: string;
   github_handle?: string;
@@ -46,6 +46,8 @@ export default function AdminPanel() {
   const [techStacks, setTechStacks] = useState<TechnologyStack[]>([]);
   const [activeTab, setActiveTab] = useState('users');
   const [showInactiveUsers, setShowInactiveUsers] = useState(false);
+  const [showInactiveBadges, setShowInactiveBadges] = useState(false);
+  const [showInactiveProjects, setShowInactiveProjects] = useState(false);
   
   // Add User Modal State
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
@@ -94,53 +96,61 @@ export default function AdminPanel() {
   const [createBadgeError, setCreateBadgeError] = useState('');
   const [isCreatingBadge, setIsCreatingBadge] = useState(false);
   const badgeFileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Project Management State
+  const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
+  const [newProjectImage, setNewProjectImage] = useState<File | null>(null);
+  const [newProjectImagePreview, setNewProjectImagePreview] = useState<string | null>(null);
+  const [newProjectRepo, setNewProjectRepo] = useState('');
+  const [newProjectWebsite, setNewProjectWebsite] = useState('');
+  const [createProjectError, setCreateProjectError] = useState('');
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Redirect if not logged in or not admin
-  useEffect(() => {
-    if (!authLoading) {
-      if (!user) {
-        router.push('/login');
-      } else if (userData && userData.role !== 'admin') {
-        router.push('/profile');
-      }
-    }
-  }, [authLoading, user, userData, router]);
+  // Edit Project Modal State
+  const [isEditProjectModalOpen, setIsEditProjectModalOpen] = useState(false);
+  const [editProjectData, setEditProjectData] = useState<Project | null>(null);
+  const [editProjectTitle, setEditProjectTitle] = useState('');
+  const [editProjectDescription, setEditProjectDescription] = useState('');
+  const [editProjectImage, setEditProjectImage] = useState<File | null>(null);
+  const [editProjectImagePreview, setEditProjectImagePreview] = useState<string | null>(null);
+  const [editProjectRepo, setEditProjectRepo] = useState('');
+  const [editProjectWebsite, setEditProjectWebsite] = useState('');
+  const [editProjectError, setEditProjectError] = useState('');
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  const editProjectFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch data based on the active tab
+  // Delete Project Modal State
+  const [isDeleteProjectModalOpen, setIsDeleteProjectModalOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [deleteProjectError, setDeleteProjectError] = useState('');
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+
+  // Fetch data
   useEffect(() => {
     if (authLoading || !userData || userData.role !== 'admin') return;
 
     const fetchData = async () => {
       setLoading(true);
       try {
-        switch (activeTab) {
-          case 'users':
-            const fetchedUsers = await getUsers();
-            console.log(fetchedUsers);
-            setUsers(fetchedUsers);
-            break;
-          case 'badges':
-            const fetchedBadges = await getBadges();
-            setBadges(fetchedBadges);
-            break;
-          case 'projects':
-            const fetchedProjects = await getProjects();
-            setProjects(fetchedProjects);
-            break;
-          case 'tech-stacks':
-            const fetchedTechStacks = await getTechnologyStacks();
-            setTechStacks(fetchedTechStacks);
-            break;
-        }
+        // Fetch users
+        const fetchedUsers = await getUsers();
+        setUsers(fetchedUsers);
+        
+        // Fetch projects
+        const fetchedProjects = await getAllProjects(showInactiveProjects);
+        setProjects(fetchedProjects);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
         setLoading(false);
       }
     };
-
+    
     fetchData();
-  }, [activeTab, authLoading, userData]);
+  }, [activeTab, authLoading, userData, showInactiveProjects]);
 
   // Handle profile image change
   const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -443,6 +453,212 @@ export default function AdminPanel() {
     }
   };
 
+  // Project Management Handlers
+  // Handle project image change
+  const handleProjectImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setNewProjectImage(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = () => {
+        setNewProjectImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Clear project image
+  const handleClearProjectImage = () => {
+    setNewProjectImage(null);
+    setNewProjectImagePreview(null);
+    if (projectFileInputRef.current) {
+      projectFileInputRef.current.value = '';
+    }
+  };
+
+  // Handle create project form submission
+  const handleCreateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateProjectError('');
+    setIsCreatingProject(true);
+    
+    try {
+      // Upload project image to Cloudinary if selected
+      let projectImageUrl = '';
+      if (newProjectImage) {
+        projectImageUrl = await uploadImageToCloudinary(newProjectImage);
+      }
+      
+      // Create project data object
+      const projectData = {
+        title: newProjectTitle,
+        description: newProjectDescription || '',
+        is_active: true,
+        image: projectImageUrl || '',
+        github_repo: newProjectRepo || '',
+        website_link: newProjectWebsite || '',
+        categories: [],
+        tags: [],
+        technology_stacks: [],
+        links: []
+      };
+      
+      // Create the project in Firestore
+      await createProject(projectData);
+      
+      // Reset form and close modal
+      setNewProjectTitle('');
+      setNewProjectDescription('');
+      setNewProjectImage(null);
+      setNewProjectImagePreview(null);
+      setNewProjectRepo('');
+      setNewProjectWebsite('');
+      setIsCreateProjectModalOpen(false);
+      
+      // Refresh the projects list
+      const updatedProjects = await getProjects();
+      setProjects(updatedProjects);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create project';
+      setCreateProjectError(errorMessage);
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
+
+  // Handle project image change for edit
+  const handleEditProjectImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setEditProjectImage(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = () => {
+        setEditProjectImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Clear project image for edit
+  const handleClearEditProjectImage = () => {
+    setEditProjectImage(null);
+    setEditProjectImagePreview(null);
+    if (editProjectFileInputRef.current) {
+      editProjectFileInputRef.current.value = '';
+    }
+  };
+
+  // Open edit project modal
+  const handleOpenEditProjectModal = (project: Project) => {
+    setEditProjectData(project);
+    setEditProjectTitle(project.title);
+    setEditProjectDescription(project.description || '');
+    setEditProjectImagePreview(project.image || null);
+    setEditProjectRepo(project.github_repo || '');
+    setEditProjectWebsite(project.website_link || '');
+    setEditProjectError('');
+    setIsEditProjectModalOpen(true);
+  };
+
+  // Handle edit project form submission
+  const handleEditProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editProjectData) return;
+    
+    setEditProjectError('');
+    setIsEditingProject(true);
+    
+    try {
+      // Upload project image to Cloudinary if selected
+      let projectImageUrl = editProjectData.image || '';
+      if (editProjectImage) {
+        projectImageUrl = await uploadImageToCloudinary(editProjectImage);
+      }
+      
+      // Build update data object
+      const updateData = {
+        title: editProjectTitle,
+        description: editProjectDescription || '',
+        image: projectImageUrl,
+        github_repo: editProjectRepo || '',
+        website_link: editProjectWebsite || '',
+        is_active: true
+      };
+      
+      // Update the project in Firestore
+      await updateProject(editProjectData.uid, updateData);
+      
+      // Reset form and close modal
+      setEditProjectData(null);
+      setEditProjectTitle('');
+      setEditProjectDescription('');
+      setEditProjectImage(null);
+      setEditProjectImagePreview(null);
+      setEditProjectRepo('');
+      setEditProjectWebsite('');
+      setIsEditProjectModalOpen(false);
+      
+      // Refresh the projects list
+      const updatedProjects = await getProjects();
+      setProjects(updatedProjects);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update project';
+      setEditProjectError(errorMessage);
+    } finally {
+      setIsEditingProject(false);
+    }
+  };
+
+  // Open delete project confirmation modal
+  const handleOpenDeleteProjectModal = (project: Project) => {
+    setProjectToDelete(project);
+    setDeleteProjectError('');
+    setIsDeleteProjectModalOpen(true);
+  };
+
+  // Handle project deletion (soft delete)
+  const handleDeleteProject = async () => {
+    if (!projectToDelete) return;
+    
+    setDeleteProjectError('');
+    setIsDeletingProject(true);
+    
+    try {
+      // Soft delete the project from Firestore
+      await softDeleteProject(projectToDelete.uid);
+      
+      // Close the modal
+      setProjectToDelete(null);
+      setIsDeleteProjectModalOpen(false);
+      
+      // Refresh the projects list
+      const updatedProjects = await getProjects();
+      setProjects(updatedProjects);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete project';
+      setDeleteProjectError(errorMessage);
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
+  
+  // Handle activating a project
+  const handleActivateProject = async (projectToActivate: Project) => {
+    try {
+      await reactivateProject(projectToActivate.uid);
+      
+      // Refresh the projects list
+      const updatedProjects = await getProjects();
+      setProjects(updatedProjects);
+    } catch (error) {
+      console.error('Error activating project:', error);
+    }
+  };
+
   if (authLoading || !userData || userData.role !== 'admin') {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -646,29 +862,92 @@ export default function AdminPanel() {
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold text-gray-900">Projects</h2>
-                    <button className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
-                      Create Project
-                    </button>
+                    <div className="flex items-center space-x-4">
+                      <div className="flex items-center">
+                        <label htmlFor="show-inactive-projects" className="mr-2 text-sm text-gray-600">
+                          Show Inactive Projects
+                        </label>
+                        <input
+                          id="show-inactive-projects"
+                          type="checkbox"
+                          checked={showInactiveProjects}
+                          onChange={(e) => setShowInactiveProjects(e.target.checked)}
+                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                        />
+                      </div>
+                      <button 
+                        onClick={() => setIsCreateProjectModalOpen(true)}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
+                        Create Project
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {projects.map((project) => (
+                    {projects
+                      .filter(project => showInactiveProjects || project.is_active !== false)
+                      .map((project) => (
                       <div key={project.uid} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                         <div className="flex justify-between items-start">
                           <h3 className="text-lg font-semibold text-gray-900">{project.title}</h3>
                           <span className={`px-2 py-1 rounded-full text-xs ${
-                            project.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            project.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                           }`}>
-                            {project.is_active ? 'Active' : 'Inactive'}
+                            {project.is_active !== false ? 'Active' : 'Inactive'}
                           </span>
                         </div>
+                        {project.image && (
+                          <div className="mt-2">
+                            <img 
+                              src={project.image} 
+                              alt={project.title} 
+                              className="w-full h-40 object-cover rounded-md"
+                            />
+                          </div>
+                        )}
                         <p className="mt-2 text-sm text-gray-600 line-clamp-2">{project.description}</p>
+                        
+                        {(project.github_repo || project.website_link) && (
+                          <div className="mt-3 flex space-x-3">
+                            {project.github_repo && (
+                              <a href={project.github_repo} target="_blank" rel="noopener noreferrer" 
+                                className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800">
+                                <svg className="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 24 24">
+                                  <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+                                </svg>
+                                GitHub
+                              </a>
+                            )}
+                            {project.website_link && (
+                              <a href={project.website_link} target="_blank" rel="noopener noreferrer" 
+                                className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800">
+                                <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                                Website
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        
                         <div className="mt-4 flex justify-end space-x-2">
-                          <button className="text-indigo-600 hover:text-indigo-900 text-sm">
+                          <button 
+                            onClick={() => handleOpenEditProjectModal(project)}
+                            className="text-indigo-600 hover:text-indigo-900 text-sm">
                             Edit
                           </button>
-                          <button className="text-red-600 hover:text-red-900 text-sm">
-                            Delete
-                          </button>
+                          {project.is_active === false ? (
+                            <button 
+                              onClick={() => handleActivateProject(project)}
+                              className="text-green-600 hover:text-green-900 text-sm">
+                              Activate
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleOpenDeleteProjectModal(project)}
+                              className="text-red-600 hover:text-red-900 text-sm">
+                              Deactivate
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1286,6 +1565,322 @@ export default function AdminPanel() {
           </div>
         </div>
       )}
+
+      {/* Create Project Modal */}
+      <Modal
+        isOpen={isCreateProjectModalOpen}
+        onClose={() => {
+          setIsCreateProjectModalOpen(false);
+          setNewProjectTitle('');
+          setNewProjectDescription('');
+          setNewProjectImage(null);
+          setNewProjectImagePreview('');
+          setNewProjectRepo('');
+          setNewProjectWebsite('');
+          setCreateProjectError('');
+        }}
+        title="Create Project"
+      >
+        <form onSubmit={handleCreateProject} className="space-y-4">
+          {createProjectError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+              {createProjectError}
+            </div>
+          )}
+          
+          <div>
+            <label htmlFor="project-title" className="block text-sm font-medium text-gray-700 mb-1">
+              Title
+            </label>
+            <input
+              id="project-title"
+              type="text"
+              value={newProjectTitle}
+              onChange={(e) => setNewProjectTitle(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              required
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="project-description" className="block text-sm font-medium text-gray-700 mb-1">
+              Description
+            </label>
+            <textarea
+              id="project-description"
+              value={newProjectDescription}
+              onChange={(e) => setNewProjectDescription(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              rows={3}
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="project-image" className="block text-sm font-medium text-gray-700 mb-1">
+              Image
+            </label>
+            <div className="flex items-center space-x-4">
+              <input
+                id="project-image"
+                type="file"
+                ref={projectFileInputRef}
+                onChange={handleProjectImageChange}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                type="button"
+                onClick={() => projectFileInputRef.current?.click()}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md hover:bg-indigo-100"
+              >
+                Select Image
+              </button>
+              {newProjectImagePreview && (
+                <div className="relative">
+                  <img
+                    src={newProjectImagePreview}
+                    alt="Preview"
+                    className="h-16 w-16 object-cover rounded-md"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleClearProjectImage}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div>
+            <label htmlFor="project-repo" className="block text-sm font-medium text-gray-700 mb-1">
+              GitHub Repository Link
+            </label>
+            <input
+              id="project-repo"
+              type="url"
+              value={newProjectRepo}
+              onChange={(e) => setNewProjectRepo(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              placeholder="https://github.com/username/repository"
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="project-website" className="block text-sm font-medium text-gray-700 mb-1">
+              Website Link
+            </label>
+            <input
+              id="project-website"
+              type="url"
+              value={newProjectWebsite}
+              onChange={(e) => setNewProjectWebsite(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              placeholder="https://example.com"
+            />
+          </div>
+          
+          <div className="flex justify-end space-x-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setIsCreateProjectModalOpen(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
+              disabled={isCreatingProject}
+            >
+              {isCreatingProject ? 'Creating...' : 'Create Project'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Project Modal */}
+      <Modal
+        isOpen={isEditProjectModalOpen}
+        onClose={() => {
+          setIsEditProjectModalOpen(false);
+          setEditProjectData(null);
+          setEditProjectTitle('');
+          setEditProjectDescription('');
+          setEditProjectImage(null);
+          setEditProjectImagePreview('');
+          setEditProjectRepo('');
+          setEditProjectWebsite('');
+          setEditProjectError('');
+        }}
+        title="Edit Project"
+      >
+        <form onSubmit={handleEditProject} className="space-y-4">
+          {editProjectError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+              {editProjectError}
+            </div>
+          )}
+          
+          <div>
+            <label htmlFor="edit-project-title" className="block text-sm font-medium text-gray-700 mb-1">
+              Title
+            </label>
+            <input
+              id="edit-project-title"
+              type="text"
+              value={editProjectTitle}
+              onChange={(e) => setEditProjectTitle(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              required
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="edit-project-description" className="block text-sm font-medium text-gray-700 mb-1">
+              Description
+            </label>
+            <textarea
+              id="edit-project-description"
+              value={editProjectDescription}
+              onChange={(e) => setEditProjectDescription(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              rows={3}
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="edit-project-image" className="block text-sm font-medium text-gray-700 mb-1">
+              Image
+            </label>
+            <div className="flex items-center space-x-4">
+              <input
+                id="edit-project-image"
+                type="file"
+                onChange={handleEditProjectImageChange}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                type="button"
+                onClick={() => document.getElementById('edit-project-image')?.click()}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md hover:bg-indigo-100"
+              >
+                {editProjectData?.image ? 'Change Image' : 'Select Image'}
+              </button>
+              {(editProjectImagePreview || editProjectData?.image) && (
+                <div className="relative">
+                  <img
+                    src={editProjectImagePreview || editProjectData?.image}
+                    alt="Preview"
+                    className="h-16 w-16 object-cover rounded-md"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleClearEditProjectImage}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div>
+            <label htmlFor="edit-project-repo" className="block text-sm font-medium text-gray-700 mb-1">
+              GitHub Repository Link
+            </label>
+            <input
+              id="edit-project-repo"
+              type="url"
+              value={editProjectRepo}
+              onChange={(e) => setEditProjectRepo(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              placeholder="https://github.com/username/repository"
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="edit-project-website" className="block text-sm font-medium text-gray-700 mb-1">
+              Website Link
+            </label>
+            <input
+              id="edit-project-website"
+              type="url"
+              value={editProjectWebsite}
+              onChange={(e) => setEditProjectWebsite(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              placeholder="https://example.com"
+            />
+          </div>
+          
+          <div className="flex justify-end space-x-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setIsEditProjectModalOpen(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
+              disabled={isEditingProject}
+            >
+              {isEditingProject ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Project Modal */}
+      <Modal
+        isOpen={isDeleteProjectModalOpen}
+        onClose={() => {
+          setIsDeleteProjectModalOpen(false);
+          setProjectToDelete(null);
+          setDeleteProjectError('');
+        }}
+        title="Deactivate Project"
+      >
+        <div className="space-y-4">
+          {deleteProjectError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+              {deleteProjectError}
+            </div>
+          )}
+          
+          <p className="text-gray-700">
+            Are you sure you want to deactivate the project &ldquo;{projectToDelete?.title}&rdquo;? 
+            This will hide it from public view.
+          </p>
+          
+          <div className="flex justify-end space-x-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setIsDeleteProjectModalOpen(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteProject}
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition"
+              disabled={isDeletingProject}
+            >
+              {isDeletingProject ? 'Deactivating...' : 'Deactivate Project'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 } 
