@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { getUsers, deleteUser, reactivateUser } from '@/utils/firebase';
 import { createProject, updateProject, softDeleteProject, reactivateProject, getAllProjects } from '@/lib/projects';
+import { createBadge, updateBadge, getBadges, softDeleteBadge, reactivateBadge } from '@/lib/badges';
 import { uploadImageToCloudinary } from '@/utils/cloudinary';
-import { Timestamp, FieldValue } from 'firebase/firestore';
+import { Timestamp } from 'firebase/firestore';
 import Modal from '@/components/Modal';
 import Navbar from '@/components/Navbar';
-import { User, Project } from '@/types';
+import { User, Project, TechnologyStack, Badge } from '@/types';
 import moment from 'moment';
+import { createTechnologyStack, updateTechnologyStack, softDeleteTechnologyStack, reactivateTechnologyStack, getAllTechnologyStacks } from '@/lib/technologies';
 
 // Define partial types for the user data objects
 type CreateUserData = {
@@ -128,6 +130,34 @@ export default function AdminPanel() {
   const [deleteProjectError, setDeleteProjectError] = useState('');
   const [isDeletingProject, setIsDeletingProject] = useState(false);
 
+  // Tech Stack Management State
+  const [isCreateTechStackModalOpen, setIsCreateTechStackModalOpen] = useState(false);
+  const [newTechName, setNewTechName] = useState('');
+  const [newTechDescription, setNewTechDescription] = useState('');
+  const [newTechImage, setNewTechImage] = useState<File | null>(null);
+  const [newTechImagePreview, setNewTechImagePreview] = useState<string | null>(null);
+  const [createTechError, setCreateTechError] = useState('');
+  const [isCreatingTech, setIsCreatingTech] = useState(false);
+  const techFileInputRef = useRef<HTMLInputElement>(null);
+  const [showInactiveTechStacks, setShowInactiveTechStacks] = useState(false);
+
+  // Edit Tech Stack Modal State
+  const [isEditTechStackModalOpen, setIsEditTechStackModalOpen] = useState(false);
+  const [editTechData, setEditTechData] = useState<TechnologyStack | null>(null);
+  const [editTechName, setEditTechName] = useState('');
+  const [editTechDescription, setEditTechDescription] = useState('');
+  const [editTechImage, setEditTechImage] = useState<File | null>(null);
+  const [editTechImagePreview, setEditTechImagePreview] = useState<string | null>(null);
+  const [editTechError, setEditTechError] = useState('');
+  const [isEditingTech, setIsEditingTech] = useState(false);
+  const editTechFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Delete Tech Stack Modal State
+  const [isDeleteTechStackModalOpen, setIsDeleteTechStackModalOpen] = useState(false);
+  const [techToDelete, setTechToDelete] = useState<TechnologyStack | null>(null);
+  const [deleteTechError, setDeleteTechError] = useState('');
+  const [isDeletingTech, setIsDeletingTech] = useState(false);
+
   // Fetch data
   useEffect(() => {
     if (authLoading || !userData || userData.role !== 'admin') return;
@@ -142,6 +172,17 @@ export default function AdminPanel() {
         // Fetch projects
         const fetchedProjects = await getAllProjects(showInactiveProjects);
         setProjects(fetchedProjects);
+
+        if (activeTab === 'badges') {
+          const fetchedBadges = await getBadges(showInactiveBadges);
+          setBadges(fetchedBadges);
+        }
+
+        // Fetch tech stacks when the tech-stacks tab is active
+        if (activeTab === 'tech-stacks') {
+          const fetchedTechStacks = await getAllTechnologyStacks(showInactiveTechStacks);
+          setTechStacks(fetchedTechStacks);
+        }
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -150,7 +191,7 @@ export default function AdminPanel() {
     };
     
     fetchData();
-  }, [activeTab, authLoading, userData, showInactiveProjects]);
+  }, [activeTab, authLoading, userData, showInactiveProjects, showInactiveTechStacks]);
 
   // Handle profile image change
   const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -659,6 +700,197 @@ export default function AdminPanel() {
     }
   };
 
+  // Tech Stack Image Handlers
+  const handleTechImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setNewTechImage(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = () => {
+        setNewTechImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Clear tech stack image
+  const handleClearTechImage = () => {
+    setNewTechImage(null);
+    setNewTechImagePreview(null);
+    if (techFileInputRef.current) {
+      techFileInputRef.current.value = '';
+    }
+  };
+
+  // Handle create tech stack form submission
+  const handleCreateTechStack = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateTechError('');
+    setIsCreatingTech(true);
+    
+    try {
+      // Upload tech image to Cloudinary if selected
+      let techImageUrl = '';
+      if (newTechImage) {
+        techImageUrl = await uploadImageToCloudinary(newTechImage);
+      }
+      
+      // Create tech stack data object
+      const techData = {
+        name: newTechName,
+        description: newTechDescription,
+        image: techImageUrl,
+        is_active: true
+      };
+      
+      // Create the tech stack in Firestore
+      await createTechnologyStack(techData);
+      
+      // Reset form and close modal
+      setNewTechName('');
+      setNewTechDescription('');
+      setNewTechImage(null);
+      setNewTechImagePreview(null);
+      setIsCreateTechStackModalOpen(false);
+      
+      // Refresh the tech stacks list
+      const updatedTechStacks = await getAllTechnologyStacks(showInactiveTechStacks);
+      setTechStacks(updatedTechStacks);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create technology stack';
+      setCreateTechError(errorMessage);
+    } finally {
+      setIsCreatingTech(false);
+    }
+  };
+
+  // Edit Tech Stack Image Handlers
+  const handleEditTechImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setEditTechImage(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = () => {
+        setEditTechImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Clear edit tech stack image
+  const handleClearEditTechImage = () => {
+    setEditTechImage(null);
+    setEditTechImagePreview(null);
+    if (editTechFileInputRef.current) {
+      editTechFileInputRef.current.value = '';
+    }
+  };
+
+  // Open edit tech stack modal
+  const handleOpenEditTechStackModal = (tech: TechnologyStack) => {
+    setEditTechData(tech);
+    setEditTechName(tech.name);
+    setEditTechDescription(tech.description || '');
+    setEditTechImagePreview(tech.image || null);
+    setEditTechError('');
+    setIsEditTechStackModalOpen(true);
+  };
+
+  // Handle edit tech stack form submission
+  const handleEditTechStack = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTechData) return;
+    
+    setEditTechError('');
+    setIsEditingTech(true);
+    
+    try {
+      // Upload tech image to Cloudinary if selected
+      let techImageUrl = editTechData.image || '';
+      if (editTechImage) {
+        techImageUrl = await uploadImageToCloudinary(editTechImage);
+      }
+      
+      // Build update data object
+      const updateData = {
+        name: editTechName,
+        description: editTechDescription,
+        image: techImageUrl,
+        is_active: true
+      };
+      
+      // Update the tech stack in Firestore
+      await updateTechnologyStack(editTechData.uid, updateData);
+      
+      // Reset form and close modal
+      setEditTechData(null);
+      setEditTechName('');
+      setEditTechDescription('');
+      setEditTechImage(null);
+      setEditTechImagePreview(null);
+      setIsEditTechStackModalOpen(false);
+      
+      // Refresh the tech stacks list
+      const updatedTechStacks = await getAllTechnologyStacks(showInactiveTechStacks);
+      setTechStacks(updatedTechStacks);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update technology stack';
+      setEditTechError(errorMessage);
+    } finally {
+      setIsEditingTech(false);
+    }
+  };
+
+  // Open delete tech stack confirmation modal
+  const handleOpenDeleteTechStackModal = (tech: TechnologyStack) => {
+    setTechToDelete(tech);
+    setDeleteTechError('');
+    setIsDeleteTechStackModalOpen(true);
+  };
+
+  // Handle tech stack deletion (soft delete)
+  const handleDeleteTechStack = async () => {
+    if (!techToDelete) return;
+    
+    setDeleteTechError('');
+    setIsDeletingTech(true);
+    
+    try {
+      // Soft delete the tech stack from Firestore
+      await softDeleteTechnologyStack(techToDelete.uid);
+      
+      // Close the modal
+      setTechToDelete(null);
+      setIsDeleteTechStackModalOpen(false);
+      
+      // Refresh the tech stacks list
+      const updatedTechStacks = await getAllTechnologyStacks(showInactiveTechStacks);
+      setTechStacks(updatedTechStacks);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete technology stack';
+      setDeleteTechError(errorMessage);
+    } finally {
+      setIsDeletingTech(false);
+    }
+  };
+  
+  // Handle activating a tech stack
+  const handleActivateTechStack = async (techToActivate: TechnologyStack) => {
+    try {
+      await reactivateTechnologyStack(techToActivate.uid);
+      
+      // Refresh the tech stacks list
+      const updatedTechStacks = await getAllTechnologyStacks(showInactiveTechStacks);
+      setTechStacks(updatedTechStacks);
+    } catch (error) {
+      console.error('Error activating technology stack:', error);
+    }
+  };
+
   if (authLoading || !userData || userData.role !== 'admin') {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -957,29 +1189,68 @@ export default function AdminPanel() {
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold text-gray-900">Technology Stacks</h2>
-                    <button className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
-                      Add Technology
-                    </button>
+                    <div className="flex items-center space-x-4">
+                      <div className="flex items-center">
+                        <label htmlFor="show-inactive-tech" className="mr-2 text-sm text-gray-600">
+                          Show Inactive Tech Stacks
+                        </label>
+                        <input
+                          id="show-inactive-tech"
+                          type="checkbox"
+                          checked={showInactiveTechStacks}
+                          onChange={(e) => setShowInactiveTechStacks(e.target.checked)}
+                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                        />
+                      </div>
+                      <button 
+                        onClick={() => setIsCreateTechStackModalOpen(true)}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
+                        Add Technology
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    {techStacks.map((tech) => (
+                    {techStacks
+                      .filter(tech => showInactiveTechStacks || tech.is_active !== false)
+                      .map((tech) => (
                       <div key={tech.uid} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                         <div className="flex justify-between items-start">
                           <h3 className="text-lg font-semibold text-gray-900">{tech.name}</h3>
                           <span className={`px-2 py-1 rounded-full text-xs ${
-                            tech.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            tech.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                           }`}>
-                            {tech.is_active ? 'Active' : 'Inactive'}
+                            {tech.is_active !== false ? 'Active' : 'Inactive'}
                           </span>
                         </div>
+                        {tech.image && (
+                          <div className="mt-2">
+                            <img 
+                              src={tech.image} 
+                              alt={tech.name} 
+                              className="w-16 h-16 object-cover rounded-md mx-auto"
+                            />
+                          </div>
+                        )}
                         <p className="mt-2 text-sm text-gray-600">{tech.description}</p>
                         <div className="mt-4 flex justify-end space-x-2">
-                          <button className="text-indigo-600 hover:text-indigo-900 text-sm">
+                          <button 
+                            onClick={() => handleOpenEditTechStackModal(tech)}
+                            className="text-indigo-600 hover:text-indigo-900 text-sm">
                             Edit
                           </button>
-                          <button className="text-red-600 hover:text-red-900 text-sm">
-                            Delete
-                          </button>
+                          {tech.is_active === false ? (
+                            <button 
+                              onClick={() => handleActivateTechStack(tech)}
+                              className="text-green-600 hover:text-green-900 text-sm">
+                              Activate
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleOpenDeleteTechStackModal(tech)}
+                              className="text-red-600 hover:text-red-900 text-sm">
+                              Deactivate
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1877,6 +2148,265 @@ export default function AdminPanel() {
               disabled={isDeletingProject}
             >
               {isDeletingProject ? 'Deactivating...' : 'Deactivate Project'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Create Tech Stack Modal */}
+      <Modal
+        isOpen={isCreateTechStackModalOpen}
+        onClose={() => {
+          setIsCreateTechStackModalOpen(false);
+          setNewTechName('');
+          setNewTechDescription('');
+          setNewTechImage(null);
+          setNewTechImagePreview(null);
+          setCreateTechError('');
+        }}
+        title="Add Technology Stack"
+      >
+        <form onSubmit={handleCreateTechStack} className="space-y-4">
+          {createTechError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+              {createTechError}
+            </div>
+          )}
+          
+          <div>
+            <label htmlFor="tech-name" className="block text-sm font-medium text-gray-700 mb-1">
+              Technology Name
+            </label>
+            <input
+              id="tech-name"
+              type="text"
+              value={newTechName}
+              onChange={(e) => setNewTechName(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              required
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="tech-description" className="block text-sm font-medium text-gray-700 mb-1">
+              Description
+            </label>
+            <textarea
+              id="tech-description"
+              value={newTechDescription}
+              onChange={(e) => setNewTechDescription(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              rows={3}
+              required
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="tech-image" className="block text-sm font-medium text-gray-700 mb-1">
+              Image
+            </label>
+            <div className="flex items-center space-x-4">
+              <input
+                id="tech-image"
+                type="file"
+                ref={techFileInputRef}
+                onChange={handleTechImageChange}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                type="button"
+                onClick={() => techFileInputRef.current?.click()}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md hover:bg-indigo-100"
+              >
+                Select Image
+              </button>
+              {newTechImagePreview && (
+                <div className="relative">
+                  <img
+                    src={newTechImagePreview}
+                    alt="Preview"
+                    className="h-16 w-16 object-cover rounded-md"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleClearTechImage}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex justify-end space-x-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setIsCreateTechStackModalOpen(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
+              disabled={isCreatingTech}
+            >
+              {isCreatingTech ? 'Creating...' : 'Create Technology'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Tech Stack Modal */}
+      <Modal
+        isOpen={isEditTechStackModalOpen}
+        onClose={() => {
+          setIsEditTechStackModalOpen(false);
+          setEditTechData(null);
+          setEditTechName('');
+          setEditTechDescription('');
+          setEditTechImage(null);
+          setEditTechImagePreview(null);
+          setEditTechError('');
+        }}
+        title="Edit Technology Stack"
+      >
+        <form onSubmit={handleEditTechStack} className="space-y-4">
+          {editTechError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+              {editTechError}
+            </div>
+          )}
+          
+          <div>
+            <label htmlFor="edit-tech-name" className="block text-sm font-medium text-gray-700 mb-1">
+              Technology Name
+            </label>
+            <input
+              id="edit-tech-name"
+              type="text"
+              value={editTechName}
+              onChange={(e) => setEditTechName(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              required
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="edit-tech-description" className="block text-sm font-medium text-gray-700 mb-1">
+              Description
+            </label>
+            <textarea
+              id="edit-tech-description"
+              value={editTechDescription}
+              onChange={(e) => setEditTechDescription(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              rows={3}
+              required
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="edit-tech-image" className="block text-sm font-medium text-gray-700 mb-1">
+              Image
+            </label>
+            <div className="flex items-center space-x-4">
+              <input
+                id="edit-tech-image"
+                type="file"
+                ref={editTechFileInputRef}
+                onChange={handleEditTechImageChange}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                type="button"
+                onClick={() => editTechFileInputRef.current?.click()}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md hover:bg-indigo-100"
+              >
+                {editTechData?.image ? 'Change Image' : 'Select Image'}
+              </button>
+              {(editTechImagePreview || editTechData?.image) && (
+                <div className="relative">
+                  <img
+                    src={editTechImagePreview || editTechData?.image}
+                    alt="Preview"
+                    className="h-16 w-16 object-cover rounded-md"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleClearEditTechImage}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex justify-end space-x-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setIsEditTechStackModalOpen(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
+              disabled={isEditingTech}
+            >
+              {isEditingTech ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Tech Stack Modal */}
+      <Modal
+        isOpen={isDeleteTechStackModalOpen}
+        onClose={() => {
+          setIsDeleteTechStackModalOpen(false);
+          setTechToDelete(null);
+          setDeleteTechError('');
+        }}
+        title="Deactivate Technology Stack"
+      >
+        <div className="space-y-4">
+          {deleteTechError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+              {deleteTechError}
+            </div>
+          )}
+          
+          <p className="text-gray-700">
+            Are you sure you want to deactivate the technology stack &ldquo;{techToDelete?.name}&rdquo;? 
+            This will hide it from public view.
+          </p>
+          
+          <div className="flex justify-end space-x-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setIsDeleteTechStackModalOpen(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteTechStack}
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition"
+              disabled={isDeletingTech}
+            >
+              {isDeletingTech ? 'Deactivating...' : 'Deactivate Technology'}
             </button>
           </div>
         </div>

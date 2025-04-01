@@ -51,14 +51,17 @@ export const getBadge = async (uid: string): Promise<Badge | null> => {
   return { uid: badgeDoc.id, ...badgeDoc.data() } as Badge;
 };
 
-export const getAllBadges = async (includeInactive: boolean = false): Promise<Badge[]> => {
-  let q = collection(db, COLLECTION_NAME);
+export const getBadges = async (includeInactive: boolean = false): Promise<Badge[]> => {
+  const badgeCollection = collection(db, COLLECTION_NAME);
   
+  let badgeQuery;
   if (!includeInactive) {
-    q = query(q, where('is_active', '==', true));
+    badgeQuery = query(badgeCollection, where('is_active', '==', true));
+  } else {
+    badgeQuery = badgeCollection;
   }
 
-  const querySnapshot = await getDocs(q);
+  const querySnapshot = await getDocs(badgeQuery);
   return querySnapshot.docs.map(doc => ({
     uid: doc.id,
     ...doc.data()
@@ -71,4 +74,12 @@ export const softDeleteBadge = async (uid: string): Promise<void> => {
     is_active: false,
     modified_date: serverTimestamp(),
   });
-}; 
+};
+
+export const reactivateBadge = async (uid: string): Promise<void> => {
+  const badgeRef = doc(db, COLLECTION_NAME, uid);
+  await updateDoc(badgeRef, {
+    is_active: true,
+    modified_date: serverTimestamp(),
+  });
+};
