@@ -3,11 +3,13 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { getUsers, deleteUser, reactivateUser, updateUser } from '@/utils/firebase';
+import { getUsers, deleteUser, reactivateUser, updateUser, createUser, getProjects } from '@/utils/firebase';
 import { createProject, updateProject, softDeleteProject, reactivateProject, getAllProjects } from '@/lib/projects';
 import { createBadge, updateBadge, getBadges, softDeleteBadge, reactivateBadge } from '@/lib/badges';
 import { uploadImageToCloudinary } from '@/utils/cloudinary';
 import { Timestamp } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import Modal from '@/components/Modal';
 import Navbar from '@/components/Navbar';
 import { User, Project, TechnologyStack, Badge } from '@/types';
