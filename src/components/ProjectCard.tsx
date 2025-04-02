@@ -34,7 +34,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
         </p>
         
         <div className="mb-4 flex flex-wrap gap-2">
-          {project.tags.map((tag, index) => (
+          {project.tags && project.tags.map((tag, index) => (
             <span 
               key={index} 
               className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full"
@@ -45,7 +45,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
         </div>
         
         <div className="mb-4 flex flex-wrap gap-2">
-          {project.technology_stacks.map((tech, index) => (
+          {project.technology_stacks && project.technology_stacks.map((tech, index) => (
             <span 
               key={index} 
               className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs rounded-full"

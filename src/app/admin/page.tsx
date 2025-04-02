@@ -333,11 +333,7 @@ export default function AdminPanel() {
     // Format the member_since date for the date input
     let memberSinceDate = '';
     if (user.member_since) {
-      if ('toDate' in user.member_since) {
-        memberSinceDate = user.member_since.toDate().toISOString().split('T')[0];
-      } else if (user.member_since instanceof Date) {
-        memberSinceDate = user.member_since.toISOString().split('T')[0];
-      }
+      memberSinceDate = user.member_since.toDate().toISOString().split('T')[0];
     }
     setEditUserMemberSince(memberSinceDate);
     

@@ -1,11 +1,11 @@
-import { Timestamp, FieldValue } from 'firebase/firestore';
+import { Timestamp } from 'firebase/firestore';
 
 export interface User {
   uid: string;
   email: string;
-  member_since: Timestamp | FieldValue;
-  created_date: Timestamp | FieldValue;
-  modified_date: Timestamp | FieldValue;
+  member_since: Timestamp;
+  created_date: Timestamp;
+  modified_date: Timestamp;
   profile_image?: string;
   github_handle?: string;
   linkedin_profile_link?: string;
@@ -23,8 +23,8 @@ export interface Badge {
   type: string;
   level: string;
   description: string;
-  created_date: Timestamp | FieldValue;
-  modified_date: Timestamp | FieldValue;
+  created_date: Timestamp;
+  modified_date: Timestamp;
   image: string;
   is_active: boolean;
 }
@@ -36,8 +36,8 @@ export interface Project {
   categories?: string[];
   tags?: string[];
   technology_stacks?: string[]; // Array of technology stack IDs
-  created_date: Timestamp | FieldValue;
-  modified_date: Timestamp | FieldValue;
+  created_date: Timestamp;
+  modified_date: Timestamp;
   links?: string[]; // Array of URLs
   image?: string;
   is_active: boolean;
@@ -50,7 +50,7 @@ export interface TechnologyStack {
   name: string;
   description: string;
   image: string;
-  created_date: Timestamp | FieldValue;
-  modified_date: Timestamp | FieldValue;
+  created_date: Timestamp;
+  modified_date: Timestamp;
   is_active: boolean;
 } 
