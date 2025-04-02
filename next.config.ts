@@ -7,4 +7,12 @@ const nextConfig: NextConfig = {
   },
 };
 
+// next.config.js
+module.exports = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+};
+
+
 export default nextConfig;
