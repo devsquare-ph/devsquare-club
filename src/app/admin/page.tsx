@@ -37,6 +37,7 @@ type UpdateUserData = {
   facebook_handle?: string;
   instagram_handle?: string;
   member_since?: Timestamp;
+  badges?: string[];
 };
 
 export default function AdminPanel() {
@@ -82,6 +83,8 @@ export default function AdminPanel() {
   const [editProfileImage, setEditProfileImage] = useState<File | null>(null);
   const [editProfileImagePreview, setEditProfileImagePreview] = useState<string | null>(null);
   const [isEditingUser, setIsEditingUser] = useState(false);
+  const [editUserBadges, setEditUserBadges] = useState<string[]>([]);
+  const [availableBadges, setAvailableBadges] = useState<Badge[]>([]);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // Delete User Modal State
@@ -129,6 +132,7 @@ export default function AdminPanel() {
   const [newProjectImagePreview, setNewProjectImagePreview] = useState<string | null>(null);
   const [newProjectRepo, setNewProjectRepo] = useState('');
   const [newProjectWebsite, setNewProjectWebsite] = useState('');
+  const [newProjectTechStacks, setNewProjectTechStacks] = useState<string[]>([]);
   const [createProjectError, setCreateProjectError] = useState('');
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const projectFileInputRef = useRef<HTMLInputElement>(null);
@@ -142,6 +146,7 @@ export default function AdminPanel() {
   const [editProjectImagePreview, setEditProjectImagePreview] = useState<string | null>(null);
   const [editProjectRepo, setEditProjectRepo] = useState('');
   const [editProjectWebsite, setEditProjectWebsite] = useState('');
+  const [editProjectTechStacks, setEditProjectTechStacks] = useState<string[]>([]);
   const [editProjectError, setEditProjectError] = useState('');
   const [isEditingProject, setIsEditingProject] = useState(false);
   const editProjectFileInputRef = useRef<HTMLInputElement>(null);
@@ -180,40 +185,49 @@ export default function AdminPanel() {
   const [deleteTechError, setDeleteTechError] = useState('');
   const [isDeletingTech, setIsDeletingTech] = useState(false);
 
+  // Add state variables for badge user assignment
+  // ... existing code ...
+  // Badge User Assignment
+  const [isAssignBadgeModalOpen, setIsAssignBadgeModalOpen] = useState(false);
+  const [badgeToAssign, setBadgeToAssign] = useState<Badge | null>(null);
+  const [selectedUsersForBadge, setSelectedUsersForBadge] = useState<string[]>([]);
+  const [assignBadgeError, setAssignBadgeError] = useState('');
+  const [isAssigningBadge, setIsAssigningBadge] = useState(false);
+
+  // ... existing code ...
+
   // Fetch data
   useEffect(() => {
     if (authLoading || !userData || userData.role !== 'admin') return;
 
     const fetchData = async () => {
-      setLoading(true);
       try {
         // Fetch users
-        const fetchedUsers = await getUsers();
-        setUsers(fetchedUsers);
-        
+        const userData = await getUsers();
+        setUsers(userData);
+
+        // Fetch badges (include inactive ones for the admin panel)
+        const badgeData = await getBadges(true);
+        setBadges(badgeData);
+        setAvailableBadges(badgeData.filter(badge => badge.is_active));
+
         // Fetch projects
-        const fetchedProjects = await getAllProjects(showInactiveProjects);
-        setProjects(fetchedProjects);
+        const projectData = await getAllProjects(true);
+        setProjects(projectData);
 
-        if (activeTab === 'badges') {
-          const fetchedBadges = await getBadges(showInactiveBadges);
-          setBadges(fetchedBadges);
-        }
-
-        // Fetch tech stacks when the tech-stacks tab is active
-        if (activeTab === 'tech-stacks') {
-          const fetchedTechStacks = await getAllTechnologyStacks(showInactiveTechStacks);
-          setTechStacks(fetchedTechStacks);
-        }
+        // Fetch technology stacks
+        const techData = await getAllTechnologyStacks(true);
+        setTechStacks(techData);
+        
+        setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
-      } finally {
         setLoading(false);
       }
     };
     
     fetchData();
-  }, [activeTab, authLoading, userData, showInactiveProjects, showInactiveTechStacks]);
+  }, [activeTab, authLoading, userData, showInactiveProjects, showInactiveTechStacks, showInactiveBadges]);
 
   // Handle profile image change
   const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -324,19 +338,17 @@ export default function AdminPanel() {
   const handleOpenEditUserModal = (user: User) => {
     setEditUserData(user);
     setEditUserRole(user.role);
-    setEditProfileImagePreview(user.profile_image || null);
     setEditUserGithub(user.github_handle || '');
     setEditUserLinkedin(user.linkedin_profile_link || '');
     setEditUserFacebook(user.facebook_handle || '');
     setEditUserInstagram(user.instagram_handle || '');
-    
-    // Format the member_since date for the date input
-    let memberSinceDate = '';
+    setEditUserBadges(user.badges || []);
     if (user.member_since) {
-      memberSinceDate = user.member_since.toDate().toISOString().split('T')[0];
+      setEditUserMemberSince(
+        user.member_since.toDate().toISOString().split('T')[0]
+      );
     }
-    setEditUserMemberSince(memberSinceDate);
-    
+    setEditProfileImagePreview(user.profile_image || null);
     setEditUserError('');
     setIsEditUserModalOpen(true);
   };
@@ -371,6 +383,14 @@ export default function AdminPanel() {
         updateData.profile_image = profileImageUrl;
       }
       
+      // Add badges to update data
+      updateData.badges = editUserBadges;
+      
+      // Add member_since if it's not empty
+      if (editUserMemberSince) {
+        updateData.member_since = Timestamp.fromDate(new Date(editUserMemberSince));
+      }
+      
       // Update the user document in Firestore
       await updateUser(editUserData.uid, updateData);
       
@@ -384,6 +404,7 @@ export default function AdminPanel() {
       setEditUserMemberSince('');
       setEditProfileImage(null);
       setEditProfileImagePreview(null);
+      setEditUserBadges([]);
       setIsEditUserModalOpen(false);
       
       // Refresh the users list
@@ -691,7 +712,7 @@ export default function AdminPanel() {
         website_link: newProjectWebsite || '',
         categories: [],
         tags: [],
-        technology_stacks: [],
+        technology_stacks: newProjectTechStacks,
         links: []
       };
       
@@ -705,6 +726,7 @@ export default function AdminPanel() {
       setNewProjectImagePreview(null);
       setNewProjectRepo('');
       setNewProjectWebsite('');
+      setNewProjectTechStacks([]);
       setIsCreateProjectModalOpen(false);
       
       // Refresh the projects list
@@ -750,6 +772,7 @@ export default function AdminPanel() {
     setEditProjectImagePreview(project.image || null);
     setEditProjectRepo(project.github_repo || '');
     setEditProjectWebsite(project.website_link || '');
+    setEditProjectTechStacks(project.technology_stacks || []);
     setEditProjectError('');
     setIsEditProjectModalOpen(true);
   };
@@ -774,6 +797,9 @@ export default function AdminPanel() {
         title: editProjectTitle,
         description: editProjectDescription,
         image: projectImageUrl,
+        github_repo: editProjectRepo,
+        website_link: editProjectWebsite,
+        technology_stacks: editProjectTechStacks
       };
       
       // Update the project in Firestore
@@ -785,6 +811,9 @@ export default function AdminPanel() {
       setEditProjectDescription('');
       setEditProjectImage(null);
       setEditProjectImagePreview(null);
+      setEditProjectRepo('');
+      setEditProjectWebsite('');
+      setEditProjectTechStacks([]);
       setIsEditProjectModalOpen(false);
       
       // Refresh the projects list
@@ -1035,6 +1064,69 @@ export default function AdminPanel() {
     }
   };
 
+  // Add new handler functions for badge assignment
+  // ... existing code ...
+
+  // Open assign badge to users modal
+  const handleOpenAssignBadgeModal = (badge: Badge) => {
+    setBadgeToAssign(badge);
+    setSelectedUsersForBadge([]);
+    setAssignBadgeError('');
+    setIsAssignBadgeModalOpen(true);
+  };
+
+  // Handle assigning badge to selected users
+  const handleAssignBadgeToUsers = async () => {
+    if (!badgeToAssign || selectedUsersForBadge.length === 0) return;
+    
+    setAssignBadgeError('');
+    setIsAssigningBadge(true);
+    
+    try {
+      // Update each selected user with the badge
+      for (const userId of selectedUsersForBadge) {
+        const user = users.find(u => u.uid === userId);
+        if (user) {
+          const userBadges = user.badges || [];
+          // Only add the badge if the user doesn't already have it
+          if (!userBadges.includes(badgeToAssign.uid)) {
+            await updateUser(userId, {
+              badges: [...userBadges, badgeToAssign.uid],
+              is_active: true
+            });
+          }
+        }
+      }
+      
+      // Close the modal and refresh users
+      setBadgeToAssign(null);
+      setSelectedUsersForBadge([]);
+      setIsAssignBadgeModalOpen(false);
+      
+      // Refresh the users list
+      const updatedUsers = await getUsers();
+      setUsers(updatedUsers);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to assign badge to users';
+      setAssignBadgeError(errorMessage);
+    } finally {
+      setIsAssigningBadge(false);
+    }
+  };
+
+  // Handle toggling user selection for badge assignment
+  const handleToggleUserForBadge = (userId: string) => {
+    setSelectedUsersForBadge(current => {
+      if (current.includes(userId)) {
+        return current.filter(id => id !== userId);
+      } else {
+        return [...current, userId];
+      }
+    });
+  };
+
+  // ... existing code ...
+
   if (authLoading || !userData || userData.role !== 'admin') {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -1107,90 +1199,116 @@ export default function AdminPanel() {
                       </button>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            User
+                  <div className="overflow-x-auto bg-white rounded-lg shadow overflow-y-auto relative">
+                    <table className="border-collapse table-auto w-full bg-white">
+                      <thead>
+                        <tr className="text-left text-gray-700">
+                          <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase tracking-wider">
+                            Email
                           </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase tracking-wider">
                             Role
                           </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Status
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase tracking-wider">
                             Member Since
                           </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase tracking-wider">
+                            Badges
+                          </th>
+                          <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase tracking-wider">
+                            Status
+                          </th>
+                          <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase tracking-wider">
                             Actions
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
+                      <tbody className="divide-y divide-gray-200">
                         {users
                           .filter(user => showInactiveUsers || user.is_active !== false)
                           .map((user) => (
-                          <tr key={user.uid} className={user.is_active === false ? 'bg-gray-50' : ''}>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                          <tr key={user.uid} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               <div className="flex items-center">
-                                <div className="flex-shrink-0 h-10 w-10">
-                                  {user.profile_image ? (
-                                    <img 
-                                      className="h-10 w-10 rounded-full object-cover" 
-                                      src={user.profile_image} 
-                                      alt={`${user.email}'s profile`} 
-                                    />
-                                  ) : (
-                                    <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
-                                      <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                      </svg>
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="ml-4">
+                                {user.profile_image ? (
+                                  <img
+                                    src={user.profile_image}
+                                    alt={`${user.email} avatar`}
+                                    className="h-10 w-10 rounded-full mr-3 object-cover"
+                                  />
+                                ) : (
+                                  <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center mr-3">
+                                    <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2"
+                                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                      />
+                                    </svg>
+                                  </div>
+                                )}
+                                <div>
                                   <div className="text-sm font-medium text-gray-900">{user.email}</div>
+                                  {user.github_handle && (
+                                    <div className="text-sm text-gray-500">GitHub: {user.github_handle}</div>
+                                  )}
                                 </div>
                               </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <span className={`px-2 py-1 rounded-full text-xs ${
-                                user.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
+                              {user.role}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {user.member_since ? moment(user.member_since.toDate()).format('MMM D, YYYY') : '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {user.badges && user.badges.length > 0 ? (
+                                <div className="flex flex-wrap gap-1 max-w-xs">
+                                  {user.badges.map((badgeId) => {
+                                    const badge = badges.find((b) => b.uid === badgeId);
+                                    return badge ? (
+                                      <span 
+                                        key={badge.uid} 
+                                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800"
+                                        title={badge.description}
+                                      >
+                                        {badge.name}
+                                      </span>
+                                    ) : null;
+                                  })}
+                                </div>
+                              ) : (
+                                <span className="text-gray-500">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                               }`}>
-                                {user.role}
+                                {user.is_active ? 'Active' : 'Inactive'}
                               </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <span className={`px-2 py-1 rounded-full text-xs ${
-                                user.is_active === false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                              }`}>
-                                {user.is_active === false ? 'Inactive' : 'Active'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {user.member_since && 'toDate' in user.member_since 
-                                ? moment(user.member_since.toDate()).format('MMMM D, YYYY')
-                                : 'Pending'}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button 
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <button
                                 onClick={() => handleOpenEditUserModal(user)}
-                                className="text-indigo-600 hover:text-indigo-900 mr-4">
+                                className="text-indigo-600 hover:text-indigo-900 mr-4"
+                              >
                                 Edit
                               </button>
-                              {user.is_active === false ? (
-                                <button 
-                                  onClick={() => handleActivateUser(user)}
-                                  className="text-green-600 hover:text-green-900">
-                                  Activate
+                              {user.is_active ? (
+                                <button
+                                  onClick={() => handleOpenDeleteUserModal(user)}
+                                  className="text-red-600 hover:text-red-900"
+                                >
+                                  Deactivate
                                 </button>
                               ) : (
-                                <button 
-                                  onClick={() => handleOpenDeleteUserModal(user)}
-                                  className="text-red-600 hover:text-red-900">
-                                  Deactivate
+                                <button
+                                  onClick={() => handleActivateUser(user)}
+                                  className="text-green-600 hover:text-green-900"
+                                >
+                                  Activate
                                 </button>
                               )}
                             </td>
@@ -1235,102 +1353,12 @@ export default function AdminPanel() {
                         <p className="mt-2 text-sm text-gray-600">{badge.description}</p>
                         <div className="mt-4 flex justify-end space-x-2">
                           <button 
-                            onClick={() => handleOpenEditBadgeModal(badge)}
+                            onClick={() => handleOpenAssignBadgeModal(badge)}
                             className="text-indigo-600 hover:text-indigo-900 text-sm">
-                            Edit
+                            Assign
                           </button>
-                          {badge.is_active ? (
-                            <button 
-                              onClick={() => handleOpenDeleteBadgeModal(badge)}
-                              className="text-red-600 hover:text-red-900 text-sm">
-                              Deactivate
-                            </button>
-                          ) : (
-                            <button 
-                              onClick={() => handleActivateBadge(badge)}
-                              className="text-green-600 hover:text-green-900 text-sm">
-                              Activate
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : activeTab === 'projects' ? (
-                <div>
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold text-gray-900">Projects</h2>
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center">
-                        <label htmlFor="show-inactive-projects" className="mr-2 text-sm text-gray-600">
-                          Show Inactive Projects
-                        </label>
-                        <input
-                          id="show-inactive-projects"
-                          type="checkbox"
-                          checked={showInactiveProjects}
-                          onChange={(e) => setShowInactiveProjects(e.target.checked)}
-                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                        />
-                      </div>
-                      <button 
-                        onClick={() => setIsCreateProjectModalOpen(true)}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition">
-                        Create Project
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {projects
-                      .filter(project => showInactiveProjects || project.is_active !== false)
-                      .map((project) => (
-                      <div key={project.uid} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                        <div className="flex justify-between items-start">
-                          <h3 className="text-lg font-semibold text-gray-900">{project.title}</h3>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            project.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {project.is_active !== false ? 'Active' : 'Inactive'}
-                          </span>
-                        </div>
-                        {project.image && (
-                          <div className="mt-2">
-                            <img 
-                              src={project.image} 
-                              alt={project.title} 
-                              className="w-full h-40 object-cover rounded-md"
-                            />
-                          </div>
-                        )}
-                        <p className="mt-2 text-sm text-gray-600 line-clamp-2">{project.description}</p>
-                        
-                        {(project.github_repo || project.website_link) && (
-                          <div className="mt-3 flex space-x-3">
-                            {project.github_repo && (
-                              <a href={project.github_repo} target="_blank" rel="noopener noreferrer" 
-                                className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800">
-                                <svg className="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 24 24">
-                                  <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
-                                </svg>
-                                GitHub
-                              </a>
-                            )}
-                            {project.website_link && (
-                              <a href={project.website_link} target="_blank" rel="noopener noreferrer" 
-                                className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800">
-                                <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                </svg>
-                                Website
-                              </a>
-                            )}
-                          </div>
-                        )}
-                        
-                        <div className="mt-4 flex justify-end space-x-2">
                           <button 
-                            onClick={() => handleOpenEditProjectModal(project)}
+                            onClick={() => handleOpenEditBadgeModal(badge)}
                             className="text-indigo-600 hover:text-indigo-900 text-sm">
                             Edit
                           </button>
@@ -1634,154 +1662,240 @@ export default function AdminPanel() {
                   <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
                     <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Edit User</h3>
                     
-                    <form onSubmit={handleEditUser}>
-                      <div className="mb-4">
-                        <label htmlFor="edit-email" className="block text-sm font-medium text-gray-700">Email</label>
-                        <input
-                          type="email"
-                          id="edit-email"
-                          value={editUserData.email}
-                          disabled
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-gray-100"
-                        />
-                      </div>
-                      
-                      <div className="mb-4">
-                        <label htmlFor="edit-role" className="block text-sm font-medium text-gray-700">Role</label>
-                        <select
-                          id="edit-role"
-                          value={editUserRole}
-                          onChange={(e) => setEditUserRole(e.target.value as 'admin' | 'member')}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                          required
-                        >
-                          <option value="member">Member</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                      </div>
-
-                      <div className="mb-4">
-                        <label htmlFor="edit-member-since" className="block text-sm font-medium text-gray-700">Member Since</label>
-                        <input
-                          type="date"
-                          id="edit-member-since"
-                          value={editUserMemberSince}
-                          onChange={(e) => setEditUserMemberSince(e.target.value)}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                          required
-                        />
-                      </div>
-                      
-                      <div className="mb-4">
-                        <label htmlFor="edit-github" className="block text-sm font-medium text-gray-700">GitHub Handle</label>
-                        <input
-                          type="text"
-                          id="edit-github"
-                          value={editUserGithub}
-                          onChange={(e) => setEditUserGithub(e.target.value)}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                        />
-                      </div>
-                      
-                      <div className="mb-4">
-                        <label htmlFor="edit-linkedin" className="block text-sm font-medium text-gray-700">LinkedIn Profile</label>
-                        <input
-                          type="text"
-                          id="edit-linkedin"
-                          value={editUserLinkedin}
-                          onChange={(e) => setEditUserLinkedin(e.target.value)}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                        />
-                      </div>
-                      
-                      <div className="mb-4">
-                        <label htmlFor="edit-facebook" className="block text-sm font-medium text-gray-700">Facebook Handle</label>
-                        <input
-                          type="text"
-                          id="edit-facebook"
-                          value={editUserFacebook}
-                          onChange={(e) => setEditUserFacebook(e.target.value)}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                        />
-                      </div>
-                      
-                      <div className="mb-4">
-                        <label htmlFor="edit-instagram" className="block text-sm font-medium text-gray-700">Instagram Handle</label>
-                        <input
-                          type="text"
-                          id="edit-instagram"
-                          value={editUserInstagram}
-                          onChange={(e) => setEditUserInstagram(e.target.value)}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-                        />
-                      </div>
-
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700">Profile Image</label>
-                        <div className="mt-1 flex items-center">
-                          {editProfileImagePreview ? (
-                            <div className="relative">
-                              <img 
-                                src={editProfileImagePreview} 
-                                alt="Profile preview" 
-                                className="h-24 w-24 object-cover rounded-full"
-                              />
-                              <button
-                                type="button"
-                                onClick={handleClearEditProfileImage}
-                                className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 shadow-md"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <form onSubmit={handleEditUser} className="space-y-6">
+                      {/* User information fields */}
+                      <div className="space-y-4">
+                        {editUserData && (
+                          <div>
+                            <p className="text-gray-500 mb-2">Email: {editUserData.email}</p>
+                          </div>
+                        )}
+                        
+                        <div>
+                          <label htmlFor="edit-user-role" className="block text-sm font-medium text-gray-700">
+                            Role
+                          </label>
+                          <select
+                            id="edit-user-role"
+                            value={editUserRole}
+                            onChange={(e) => setEditUserRole(e.target.value as 'admin' | 'member')}
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          >
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="edit-user-github" className="block text-sm font-medium text-gray-700">
+                            GitHub Handle
+                          </label>
+                          <input
+                            type="text"
+                            id="edit-user-github"
+                            value={editUserGithub}
+                            onChange={(e) => setEditUserGithub(e.target.value)}
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="GitHub username"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="edit-user-linkedin" className="block text-sm font-medium text-gray-700">
+                            LinkedIn Profile
+                          </label>
+                          <input
+                            type="text"
+                            id="edit-user-linkedin"
+                            value={editUserLinkedin}
+                            onChange={(e) => setEditUserLinkedin(e.target.value)}
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="LinkedIn profile URL"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="edit-user-facebook" className="block text-sm font-medium text-gray-700">
+                            Facebook Handle
+                          </label>
+                          <input
+                            type="text"
+                            id="edit-user-facebook"
+                            value={editUserFacebook}
+                            onChange={(e) => setEditUserFacebook(e.target.value)}
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="Facebook username"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="edit-user-instagram" className="block text-sm font-medium text-gray-700">
+                            Instagram Handle
+                          </label>
+                          <input
+                            type="text"
+                            id="edit-user-instagram"
+                            value={editUserInstagram}
+                            onChange={(e) => setEditUserInstagram(e.target.value)}
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="Instagram username"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="edit-user-member-since" className="block text-sm font-medium text-gray-700">
+                            Member Since
+                          </label>
+                          <input
+                            type="date"
+                            id="edit-user-member-since"
+                            value={editUserMemberSince}
+                            onChange={(e) => setEditUserMemberSince(e.target.value)}
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="edit-user-profile-image" className="block text-sm font-medium text-gray-700">
+                            Profile Image
+                          </label>
+                          <input
+                            type="file"
+                            id="edit-user-profile-image"
+                            ref={editFileInputRef}
+                            onChange={handleEditProfileImageChange}
+                            accept="image/*"
+                            className="hidden"
+                          />
+                          
+                          <div className="mt-1 flex items-center space-x-3">
+                            {editProfileImagePreview ? (
+                              <div className="relative h-16 w-16">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={editProfileImagePreview}
+                                  alt="Profile Preview"
+                                  className="h-16 w-16 rounded-full object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleClearEditProfileImage}
+                                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:bg-red-600 transition"
+                                >
+                                  <span className="sr-only">Remove</span>
+                                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="h-16 w-16 rounded-full bg-gray-200 flex items-center justify-center">
+                                <svg className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                  />
                                 </svg>
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-center h-24 w-24 rounded-full bg-gray-100">
-                              <svg className="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                              </svg>
-                            </div>
-                          )}
-                          <div className="ml-4">
-                            <input
-                              type="file"
-                              ref={editFileInputRef}
-                              accept="image/*"
-                              onChange={handleEditProfileImageChange}
-                              className="hidden"
-                              id="edit-profile-image"
-                            />
-                            <label
-                              htmlFor="edit-profile-image"
-                              className="cursor-pointer px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => editFileInputRef.current?.click()}
+                              className="px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300 transition"
                             >
-                              Change Image
-                            </label>
+                              Select Image
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Badges Section */}
+                        <div className="mt-6">
+                          <label className="block text-sm font-medium text-gray-700 mb-3">
+                            Badges
+                          </label>
+                          
+                          <div className="bg-gray-50 p-3 rounded-md border border-gray-200">
+                            <div className="mb-3">
+                              <h4 className="text-sm font-medium text-gray-700">Assigned Badges</h4>
+                              {editUserBadges.length === 0 ? (
+                                <p className="text-sm text-gray-500 mt-2">No badges assigned</p>
+                              ) : (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {editUserBadges.map(badgeId => {
+                                    const badge = availableBadges.find(b => b.uid === badgeId);
+                                    return badge ? (
+                                      <div key={badgeId} className="flex items-center bg-white px-3 py-1 rounded border border-gray-200">
+                                        <span className="text-sm text-gray-800">{badge.name}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditUserBadges(current => current.filter(id => id !== badgeId))}
+                                          className="ml-2 text-gray-400 hover:text-red-500"
+                                        >
+                                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    ) : null;
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="mt-4">
+                              <h4 className="text-sm font-medium text-gray-700">Available Badges</h4>
+                              <div className="mt-2 max-h-40 overflow-y-auto">
+                                {availableBadges.length === 0 ? (
+                                  <p className="text-sm text-gray-500">No badges available</p>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {availableBadges
+                                      .filter(badge => !editUserBadges.includes(badge.uid))
+                                      .map(badge => (
+                                        <button
+                                          key={badge.uid}
+                                          type="button"
+                                          onClick={() => setEditUserBadges(current => [...current, badge.uid])}
+                                          className="flex items-center justify-between px-3 py-2 bg-white hover:bg-gray-50 border border-gray-200 rounded text-left"
+                                        >
+                                          <span className="text-sm text-gray-800">{badge.name}</span>
+                                          <svg className="h-4 w-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                                          </svg>
+                                        </button>
+                                      ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
                       
                       {editUserError && (
-                        <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md text-sm">
-                          {editUserError}
-                        </div>
+                        <div className="text-red-500 text-sm">{editUserError}</div>
                       )}
                       
-                      <div className="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:col-start-2 sm:text-sm"
-                        >
-                          {isSubmitting ? 'Saving...' : 'Save Changes'}
-                        </button>
+                      <div className="flex justify-end space-x-3">
                         <button
                           type="button"
                           onClick={() => setIsEditUserModalOpen(false)}
-                          className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm"
+                          className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
                         >
                           Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isEditingUser}
+                          className={`px-4 py-2 rounded-md text-sm font-medium text-white transition ${
+                            isEditingUser 
+                              ? 'bg-indigo-400' 
+                              : 'bg-indigo-600 hover:bg-indigo-700'
+                          }`}
+                        >
+                          {isEditingUser ? 'Updating...' : 'Update User'}
                         </button>
                       </div>
                     </form>
@@ -2217,6 +2331,7 @@ export default function AdminPanel() {
           setNewProjectImagePreview('');
           setNewProjectRepo('');
           setNewProjectWebsite('');
+          setNewProjectTechStacks([]);
           setCreateProjectError('');
         }}
         title="Create Project"
@@ -2324,6 +2439,29 @@ export default function AdminPanel() {
             />
           </div>
           
+          <div>
+            <label htmlFor="project-tech-stacks" className="block text-sm font-medium text-gray-700 mb-1">
+              Technology Stacks
+            </label>
+            <select
+              id="project-tech-stacks"
+              multiple
+              className="w-full p-2 border border-gray-300 rounded-md h-32"
+              value={newProjectTechStacks}
+              onChange={(e) => {
+                const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+                setNewProjectTechStacks(selectedOptions);
+              }}
+            >
+              {techStacks.filter(tech => tech.is_active !== false).map((tech) => (
+                <option key={tech.uid} value={tech.uid}>
+                  {tech.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple technologies</p>
+          </div>
+          
           <div className="flex justify-end space-x-2 pt-4">
             <button
               type="button"
@@ -2352,9 +2490,10 @@ export default function AdminPanel() {
           setEditProjectTitle('');
           setEditProjectDescription('');
           setEditProjectImage(null);
-          setEditProjectImagePreview('');
+          setEditProjectImagePreview(null);
           setEditProjectRepo('');
           setEditProjectWebsite('');
+          setEditProjectTechStacks([]);
           setEditProjectError('');
         }}
         title="Edit Project"
@@ -2407,15 +2546,15 @@ export default function AdminPanel() {
               />
               <button
                 type="button"
-                onClick={() => document.getElementById('edit-project-image')?.click()}
+                onClick={() => editProjectFileInputRef.current?.click()}
                 className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md hover:bg-indigo-100"
               >
-                {editProjectData?.image ? 'Change Image' : 'Select Image'}
+                Select Image
               </button>
-              {(editProjectImagePreview || editProjectData?.image) && (
+              {editProjectImagePreview && (
                 <div className="relative">
                   <img
-                    src={editProjectImagePreview || editProjectData?.image}
+                    src={editProjectImagePreview}
                     alt="Preview"
                     className="h-16 w-16 object-cover rounded-md"
                   />
@@ -2459,6 +2598,29 @@ export default function AdminPanel() {
               className="w-full p-2 border border-gray-300 rounded-md"
               placeholder="https://example.com"
             />
+          </div>
+          
+          <div>
+            <label htmlFor="edit-project-tech-stacks" className="block text-sm font-medium text-gray-700 mb-1">
+              Technology Stacks
+            </label>
+            <select
+              id="edit-project-tech-stacks"
+              multiple
+              className="w-full p-2 border border-gray-300 rounded-md h-32"
+              value={editProjectTechStacks}
+              onChange={(e) => {
+                const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+                setEditProjectTechStacks(selectedOptions);
+              }}
+            >
+              {techStacks.filter(tech => tech.is_active !== false).map((tech) => (
+                <option key={tech.uid} value={tech.uid}>
+                  {tech.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple technologies</p>
           </div>
           
           <div className="flex justify-end space-x-2 pt-4">
